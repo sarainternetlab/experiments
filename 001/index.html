@@ -1,209 +1,144 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <title>001</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-        <style>
-            body {
-                color: #ffffff;
-                font-family:Monospace;
-                font-size:13px;
-                text-align:center;
-                font-weight: bold;
-                background-color: #050505;
-                margin: 0px;
-                overflow: hidden;
-            }
-            #info {
-                position: absolute;
-                top: 0px; width: 100%;
-                padding: 5px;
-            }
-            a {
-                color: #ffffff;
-            }
-            #oldie a { color:#da0 }
-        </style>
-    </head>
-    <body>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>shader lab</title>
+  </head>
+<body style="padding: 0; margin: 0">
+    <div id="container"></div>
+    <script src="../three.min.js"></script>
+    <script id="vertexShader" type="x-shader/x-vertex">
+        void main() {
+            gl_Position = vec4( position, 1.0 );
+        }
+    </script>
+    <script id="fragmentShader" type="x-shader/x-fragment">
+
+        #ifdef GL_ES
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_mouse;
+uniform float u_time;
+
+float rectSDF(vec2 st, vec2 s) {
+    st = st*2.-1.;
+    return max( abs(st.x/s.x),
+                abs(st.y/s.y));
+}
+
+float circleSDF(vec2 st, float size) {
+    return length(st-0.5)*size;
+}
+
+float fill(float sdf, float w) {
+    return 1.-step(w,sdf);
+}
+
+vec2 rotate(vec2 st, float angle) {
+    return mat2(cos(angle),-sin(angle),
+               sin(angle),cos(angle)) * (st-0.5)+0.5;
+}
 
 
-        <div id="container"></div>
-        <script src="../three.min.js"></script>
+void main() {
+    vec2 st = gl_FragCoord.xy/u_resolution.xy;
+    if (u_resolution.y > u_resolution.x ) {
+        st.y *= u_resolution.y/u_resolution.x;
+        st.y -= (u_resolution.y*.5-u_resolution.x*.5)/u_resolution.x;
+    } else {
+        st.x *= u_resolution.x/u_resolution.y;
+        st.x -= (u_resolution.x*.5-u_resolution.y*.5)/u_resolution.y;
+    }
+    float t = u_time * 2.5;
+    float t_size = u_time * 0.1;
+    
+    st.x += cos(t+st.y*70.)*.01;
+    st.y += sin(t+st.y*50.)*.1;
+    
+    float angle = 0.75;
+    st = rotate(st,angle);
+    vec2 pos = st;
+    
+    float grid = 1.;
+    
+    vec2 st_i = floor(st*grid);
+    vec2 st_f = fract(st*grid);
 
-        <script src="../js/Detector.js"></script>
-        <script src="../js/libs/stats.min.js"></script>
-        <script src="../js/renderers/Projector.js"></script>
-        <script src="../src/controls/OrbitControls.js"></script>
-        <script src="../src/controls/TransformControls.js"></script>
-        <script src="../src/controls/DragControls.js"></script>
-        <script src="../src/controls/TrackballControls.js"></script>
-        <script src="../js/Cloth.js"></script>
+    vec3 color = vec3(0.01,0.05,0.2);
+    float bg = rectSDF(pos,vec2(1.));
+    float r = rectSDF(pos,vec2(0.5));
+    float size = (sin(t_size)+0.5)*5.;
+    float c = circleSDF(st_f,4.5);
+    color += vec3(st.y*1.3,0.,0.)*fill(c,1.);
 
-        <script id="fragment_shader" type="x-shader/x-fragment">
-            uniform float time;
-            uniform vec2 resolution;
-            uniform vec2 mouse;
-            uniform sampler2D texture;
-            varying vec2 vUv;
+    gl_FragColor = vec4(color,1.);
+        }
 
-            float random (in float x) {
-                return fract(sin(x)*1e4);
-            }
+    </script>
+    <script>
+        var container;
+        var camera, scene, renderer;
+        var uniforms;
 
-            void main( void ) {
-                vec2 position = vUv;
+        init();
+        animate();
 
-                float frequency = 10.;
-                float amplitude = 0.07;
-                float distortion = cos(position.x*frequency+time*1.5)*amplitude*position.x;
+        function init() {
+            container = document.getElementById( 'container' );
 
-                vec4 color = texture2D(texture,vec2(position.x,position.y+distortion));
-                gl_FragColor = vec4( color );
-            }
+            camera = new THREE.Camera();
+            camera.position.z = 1;
 
-        </script>
+            scene = new THREE.Scene();
 
-        <script id="vertexShader" type="x-shader/x-vertex">
-            varying vec2 vUv;
-            void main()
-            {
-                vUv = uv;
-                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-                gl_Position = projectionMatrix * mvPosition;
-            }
-        </script>
-
-        <script>
-            if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
-            var container, stats;
-            var camera, scene, renderer;
-            var uniforms, uniforms_1, material, mesh;
-            var clock = new THREE.Clock();
-
-
-            //cloth stuff
-            var clothGeometry;
-            var object;
-            var sphere;
-
-            init();
-            animate();
-
-            var pinsFormation = [];
-            var pins = [ 6 ];
-            pinsFormation.push( pins );
-            pins = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];
-            pinsFormation.push( pins );
-            pins = [ 0 ];
-            pinsFormation.push( pins );
-            pins = []; // cut the rope ;)
-            pinsFormation.push( pins );
-            pins = [ 0, cloth.w ]; // classic 2 pins
-            pinsFormation.push( pins );
-            pins = pinsFormation[ 1 ];
-
-
-            function init() {
-                container = document.getElementById( 'container' );
-                camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 10000 );
-                camera.position.set( 1000, 50, 1500 );
-                scene = new THREE.Scene();
+            var geometry = new THREE.PlaneBufferGeometry( 2, 2 );
 
             uniforms = {
-                time: {value: 0.1},
-                resolution: {value: new THREE.Vector2()},
-                texture: {value: new THREE.TextureLoader().load("img/boom.png")},
-                mouse: {type: "v2", value: new THREE.Vector2()}
-            }
-            
-            var material = new THREE.ShaderMaterial({
+                u_time: { type: "f", value: 1.0 },
+                u_resolution: { type: "v2", value: new THREE.Vector2() },
+                u_mouse: { type: "v2", value: new THREE.Vector2() }
+            };
+
+            var material = new THREE.ShaderMaterial( {
                 uniforms: uniforms,
-                vertexShader: document.getElementById('vertexShader').textContent,
-                fragmentShader: document.getElementById('fragment_shader').textContent,
-                blending: THREE.NormalBlending,
-                depthTest: false,
-                transparent: true,
-                side: THREE.DoubleSide,
-            });
+                vertexShader: document.getElementById( 'vertexShader' ).textContent,
+                fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+            } );
 
-            //cloth geo
-            clothGeometry = new THREE.ParametricGeometry(clothFunction, cloth.w, cloth.h);
+            var mesh = new THREE.Mesh( geometry, material );
+            scene.add( mesh );
 
-            //cloth mesh
-            object = new THREE.Mesh(clothGeometry, material);
-            object.position.set( 0, 0, 0 );
-            scene.add(object);
-
-            object.customDepthMaterial = new THREE.MeshDepthMaterial({
-                depthPacking: THREE.RGBADepthPacking,
-                map: uniforms.texture,
-                alphaTest: 0.5
-            });
-
-            
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setClearColor( 0xffa5d5);
+            renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio( window.devicePixelRatio );
+
             container.appendChild( renderer.domElement );
+
             onWindowResize();
             window.addEventListener( 'resize', onWindowResize, false );
 
-            //controls
-            controls = new THREE.TrackballControls( camera );
-            controls.rotateSpeed = 1.0;
-            controls.zoomSpeed = 1.2;
-            controls.panSpeed = 0.8;
-            controls.noZoom = false;
-            controls.noPan = false;
-            controls.staticMoving = true;
-            controls.dynamicDampingFactor = 0.3;
-            controls.keys = [ 65, 83, 68 ];
-            controls.addEventListener( 'change', render );
-
             document.onmousemove = function(e){
-              uniforms.mouse.value.x = e.pageX
-              uniforms.mouse.value.y = e.pageY
+              uniforms.u_mouse.value.x = e.pageX
+              uniforms.u_mouse.value.y = e.pageY
             }
-            }
+        }
 
-            function onWindowResize( event ) {
-                uniforms.resolution.value.x = window.innerWidth;
-                uniforms.resolution.value.y = window.innerHeight;
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize( window.innerWidth, window.innerHeight );
-            }
+        function onWindowResize( event ) {
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            uniforms.u_resolution.value.x = renderer.domElement.width;
+            uniforms.u_resolution.value.y = renderer.domElement.height;
+        }
 
-            function animate() {
-                requestAnimationFrame( animate );
-                render();
-                controls.update();
+        function animate() {
+            requestAnimationFrame( animate );
+            render();
+        }
 
-                var time = Date.now();
-                var windStrength = Math.cos(time/7000)*20+40;
-
-                windForce.set( Math.sin( time / 2000 ), Math.cos( time / 3000 ), Math.sin( time / 1000 ) )
-                windForce.normalize()
-                windForce.multiplyScalar( windStrength );
-                simulate( time );
-            }
-            function render() {
-                var delta = clock.getDelta();
-                uniforms.time.value += delta;
-
-                var p = cloth.particles;
-                for ( var i = 0, il = p.length; i < il; i ++ ) {
-                    clothGeometry.vertices[ i ].copy( p[ i ].position );
-                }
-                clothGeometry.verticesNeedUpdate = true;
-                clothGeometry.computeFaceNormals();
-                clothGeometry.computeVertexNormals();
-
-                renderer.render( scene, camera );
-            }
-        </script>
-
-    </body>
+        function render() {
+            uniforms.u_time.value += 0.01;
+            renderer.render( scene, camera );
+        }
+    </script>
+</body>
 </html>
